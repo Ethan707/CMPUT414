@@ -36,10 +36,6 @@ class Ply:
                     if box[j] <= each_axis <= box[j + 1]:
                         record.append(j)
                         break
-            # print("\n\n\n")
-            # print(record)
-            # print(low, high)
-            # print([x, y, z])
             box_buffer[record[0], record[1], record[2]] += 1
         return box_buffer
 
@@ -60,16 +56,15 @@ if __name__ == '__main__':
     dataset_path = dirname(dirname(dirname(abspath(__file__)))) + "/dataset/"
     given_dataset_path = dataset_path + "shape_net_core_uniform_samples_2048/"
     all_folders = os.listdir(given_dataset_path)
-    for i in all_folders:
+    for i in all_folders[]:
         full_path = given_dataset_path + i + "/"
         for j in os.listdir(full_path):
             file_path = full_path + j
             print(file_path)
             single_ply = Ply(file_path, 32)
             box = single_ply.create_box()
-            
-            np.save(dataset_path + "data/" + j[:-3] + "npy", box)
+            save_folder = dataset_path + "data/" + i + "/"
+            os.makedirs(save_folder, exist_ok=True)
+            save_path = save_folder + j[:-3] + "npy"
+            np.save(save_path, box)
 
-    # single_ply = Ply("sample.ply", 32)
-    # box = single_ply.create_box()
-    # single_ply.draw_box()
