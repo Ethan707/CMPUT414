@@ -1,9 +1,9 @@
 '''
 Author: Yuxi Chen
 Date: 2022-03-15 17:49:50
-LastEditTime: 2022-03-31 18:04:17
+LastEditTime: 2022-04-06 11:48:13
 LastEditors: Ethan Chen
-Description: 
+Description:
 FilePath: /CMPUT414/src/data.py
 '''
 import os
@@ -12,21 +12,54 @@ from torch.utils.data import Dataset
 import numpy as np
 import h5py
 
+SHAPE = ["airplane",
+         "bathtub",
+         "bed",
+         "bench",
+         "bookshelf",
+         "bottle",
+         "bowl",
+         "car",
+         "chair",
+         "cone",
+         "cup",
+         "curtain",
+         "desk",
+         "door",
+         "dresser",
+         "flower_pot",
+         "glass_box",
+         "guitar",
+         "keyboard",
+         "lamp",
+         "laptop",
+         "mantel",
+         "monitor",
+         "night_stand",
+         "person",
+         "piano",
+         "plant",
+         "radio",
+         "range_hood",
+         "sink",
+         "sofa",
+         "stairs",
+         "stool",
+         "table",
+         "tent",
+         "toilet",
+         "tv_stand",
+         "vase",
+         "wardrobe",
+         "xbox",
+         ]
+
 
 def download():
     BASIC_DIR = os.path.dirname(os.path.abspath(__file__))
-    print(BASIC_DIR)
     DATA_DIR = os.path.join(BASIC_DIR, '../data')
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
-    # if not os.path.exists(os.path.join(DATA_DIR, 'shape_net_core_uniform_samples_2048')):
-    #     www = 'https://www.dropbox.com/s/vmsdrae6x5xws1v/shape_net_core_uniform_samples_2048.zip'
-    #     zipfile = os.path.basename(www)
-    #     os.system('wget -O %s %s' % (zipfile, www))
-    #     os.system('mv %s %s' % (zipfile, DATA_DIR))
-    #     os.system('unzip -d %s %s' % (DATA_DIR, os.path.join(DATA_DIR, zipfile)))
-    #     os.system('rm %s' % (os.path.join(DATA_DIR, zipfile)))
-
     if not os.path.exists(os.path.join(DATA_DIR, 'modelnet40_ply_hdf5_2048')):
         www = 'https://shapenet.cs.stanford.edu/media/modelnet40_ply_hdf5_2048.zip'
         zipfile = os.path.basename(www)
@@ -59,10 +92,15 @@ def translate_pointcloud(pointcloud):
     translated_pointcloud = np.add(np.multiply(pointcloud, xyz1), xyz2).astype('float32')
     return translated_pointcloud
 
-# TODO:
+
+def rotate_pointcloud(pointcloud):
+    theta = np.pi*2 * np.random.uniform()
+    rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+    pointcloud[:, [0, 2]] = pointcloud[:, [0, 2]].dot(rotation_matrix)  # random rotation (x,z)
+    return pointcloud
 
 
-def add_noise(pointcloud):
+def noise_pointcloud(pointcloud):
     # gaussian noise
     noise = np.random.normal(0, 0.005, size=pointcloud.shape)
     return pointcloud + noise
@@ -90,12 +128,14 @@ class ModelNet40(Dataset):
 
     def __getitem__(self, index):
         pointCloud = self.data[index][:self.num_points]
-        ground_truth = self.label[index][:]
+        ground_truth = pointCloud.copy()
         label = self.label[index]
         if self.partition == 'train':
-            pointCloud = translate_pointcloud(pointCloud)
+            translatedCloud = translate_pointcloud(pointCloud)
+            noiseCloud = noise_pointcloud(pointCloud)
+            rotatedCloud = rotate_pointcloud(pointCloud)
             np.random.shuffle(pointCloud)
-        return ground_truth, pointCloud, label
+        return ground_truth, (translatedCloud, noiseCloud, rotatedCloud), label
 
     def __len__(self):
         return self.data.shape[0]
@@ -103,10 +143,32 @@ class ModelNet40(Dataset):
 
 # at most 2048 points for each sample
 # total 9840 samples
+# total 40 classes
 if __name__ == '__main__':
     train = ModelNet40(4096, 'data/modelnet40_ply_hdf5_2048/train_files.txt')
     test = ModelNet40(4096, 'data/modelnet40_ply_hdf5_2048/test_files.txt')
-    _, example_data, example_label = train[0]
-    print(example_data.shape)
-    print(example_label)
-    # plot_point_cloud(example_data, example_label, './images/')
+    example_data_gt, (example_data_translated, example_data_noise, example_data_rotated), example_label = train[0]
+    print("Translated:", example_data_translated.shape)
+    print("Noise:", example_data_noise.shape)
+    print("Rotated:", example_data_rotated.shape)
+    print("Label", example_label)
+    # plot_point_cloud(example_data_translated, example_label, './images/')
+    # plot_point_cloud(example_data_noise, example_label, './images/')
+    # plot_point_cloud(example_data_rotated, example_label, './images/')
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    ax.scatter(example_data_gt[:, 0], example_data_gt[:, 1], example_data_gt[:, 2], '.', color='r', label='gt')
+    ax.scatter(example_data_translated[:, 0], example_data_translated[:, 1],
+               example_data_translated[:, 2], '.', color='b', label='translated')
+    ax.scatter(example_data_noise[:, 0], example_data_noise[:, 1],
+               example_data_noise[:, 2], '.', color='g', label='noise')
+    ax.scatter(example_data_rotated[:, 0], example_data_rotated[:, 1],
+               example_data_rotated[:, 2], '.', color='y', label='rotated')
+    plt.show()
+    # label_set = {}
+    # for _, data, label in test:
+    #     assert len(label) == 1
+    #     if label[0] not in label_set:
+    #         label_set[label[0]] = 0
+    #     label_set[label[0]] += 1
+    # print(label_set)
