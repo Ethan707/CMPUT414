@@ -1,7 +1,7 @@
 '''
 Author: Ethan Chen
 Date: 2022-03-16 17:47:49
-LastEditTime: 2022-04-04 11:09:57
+LastEditTime: 2022-04-07 21:53:43
 LastEditors: Ethan Chen
 Description: The model class for the latent 3d model
 FilePath: /CMPUT414/src/model.py
@@ -253,109 +253,3 @@ class PCN(torch.nn.Module):
             result['fine_output'] = fine_output
 
         return result
-
-# classifier network
-
-
-class Classifier(nn.Module):
-    def __init__(self) -> None:
-        super(Classifier, self).__init__()
-        # block 1
-        self.conv1 = nn.Conv1d(3, 64, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv1d(64, 64, kernel_size=3, stride=1, padding=1)
-        self.max_pool_1 = nn.MaxPool1d(kernel_size=2, stride=2)
-
-        # block 2
-        self.conv3 = nn.Conv1d(64, 128, kernel_size=3, stride=1, padding=1)
-        self.conv4 = nn.Conv1d(128, 128, kernel_size=3, stride=1, padding=1)
-        self.max_pool_2 = nn.MaxPool1d(kernel_size=2, stride=2)
-
-        # block 3
-        self.conv5 = nn.Conv1d(128, 256, kernel_size=3, stride=1, padding=1)
-        self.conv6 = nn.Conv1d(256, 256, kernel_size=3, stride=1, padding=1)
-        self.conv7 = nn.Conv1d(256, 256, kernel_size=3, stride=1, padding=1)
-        self.max_pool_3 = nn.MaxPool1d(kernel_size=2, stride=2)
-
-        # block 4
-        self.conv8 = nn.Conv1d(256, 512, kernel_size=3, stride=1, padding=1)
-        self.conv9 = nn.Conv1d(512, 512, kernel_size=3, stride=1, padding=1)
-        self.conv10 = nn.Conv1d(512, 512, kernel_size=3, stride=1, padding=1)
-        self.max_pool_4 = nn.MaxPool1d(kernel_size=2, stride=2)
-
-        # block 5
-        self.conv11 = nn.Conv1d(512, 512, kernel_size=3, stride=1, padding=1)
-        self.conv12 = nn.Conv1d(512, 512, kernel_size=3, stride=1, padding=1)
-        self.conv13 = nn.Conv1d(512, 512, kernel_size=3, stride=1, padding=1)
-        self.max_pool_5 = nn.MaxPool1d(kernel_size=2, stride=2)
-
-        # FC layers
-        self.fc1 = nn.Linear(512*64, 4096)
-        self.dropout_1 = nn.Dropout(p=0.5)
-        self.fc2 = nn.Linear(4096, 4096)
-        self.dropout_2 = nn.Dropout(p=0.5)
-        self.fc3 = nn.Linear(4096, 30)
-
-    def forward(self, input_data):
-        # block 1
-        print('0', input_data.shape)
-        x = input_data.reshape(-1, 3, 2048)
-        print('1', x.shape)
-        x = F.relu(self.conv1(x))
-        print('2', x.shape)
-        x = F.relu(self.conv2(x))
-        print('3', x.shape)
-        x = self.max_pool_1(x)
-        print('4', x.shape)
-
-        # block 2
-        x = F.relu(self.conv3(x))
-        print('5', x.shape)
-        x = F.relu(self.conv4(x))
-        print('6', x.shape)
-        x = self.max_pool_2(x)
-        print('7', x.shape)
-
-        # block 3
-        x = F.relu(self.conv5(x))
-        print('8', x.shape)
-        x = F.relu(self.conv6(x))
-        print('9', x.shape)
-        x = F.relu(self.conv7(x))
-        print('10', x.shape)
-        x = self.max_pool_3(x)
-        print('11', x.shape)
-
-        # block 4
-        x = F.relu(self.conv8(x))
-        print('12', x.shape)
-        x = F.relu(self.conv9(x))
-        print('13', x.shape)
-        x = F.relu(self.conv10(x))
-        print('14', x.shape)
-        x = self.max_pool_4(x)
-        print('15', x.shape)
-
-        # block 5
-        x = F.relu(self.conv11(x))
-        print('16', x.shape)
-        x = F.relu(self.conv12(x))
-        print('17', x.shape)
-        x = F.relu(self.conv13(x))
-        print('18', x.shape)
-        x = self.max_pool_5(x)
-        print('19', x.shape)
-
-        # FC layers
-        x = x.view(x.size(0), -1)
-        print('20', x.shape)
-        x = F.relu(self.fc1(x))
-        print('21', x.shape)
-        x = self.dropout_1(x)
-        print('22', x.shape)
-        x = F.relu(self.fc2(x))
-        print('23', x.shape)
-        x = self.dropout_2(x)
-        print('24', x.shape)
-        x = self.fc3(x)
-        print('25', x.shape)
-        return x

@@ -1,7 +1,7 @@
 '''
 Author: Ethan Chen
 Date: 2022-03-16 17:47:49
-LastEditTime: 2022-04-04 11:34:46
+LastEditTime: 2022-04-08 10:52:15
 LastEditors: Ethan Chen
 Description: 
 FilePath: /CMPUT414/src/train.py
@@ -17,7 +17,7 @@ from data import *
 from model import *
 from pytorch3d.loss import chamfer_distance
 from torchsummary import summary
-
+from loss import *
 # TODO:
 # 1. chamer_distance + classification loss
 # 2. add the laplace GAN
@@ -32,11 +32,14 @@ from torchsummary import summary
 def modeltest():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # model = AutoEncoder()
-    model = Classifier()
+    model = PointNet(features=1024, output_channels=40)
     model.to(device)
-    x = torch.randn(2048, 3).to(device)
+    x = torch.randn(1, 2048, 3).to(device)
+    # x = x.permute(0, 2, 1)
+    # x = x.permute(1, 0)
+    print(x.shape)
     model(x)
-    summary(model, (2048, 3))
+    # summary(model, (2048, 3))
 
 
 if __name__ == "__main__":
