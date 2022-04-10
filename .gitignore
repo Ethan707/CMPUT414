@@ -3,3 +3,13 @@ data
 *.zip
 shape_net_core_uniform_samples_2048
 *.ply
+modelnet40_ply_hdf5_2048
+test
+*.png
+src/__pycache__
+*.pyc
+*.pyo
+*.so
+*.pyd
+model/*
+images/*
