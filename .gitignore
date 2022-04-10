@@ -11,3 +11,5 @@ src/__pycache__
 *.pyo
 *.so
 *.pyd
+model/*
+images/*

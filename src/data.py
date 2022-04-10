@@ -1,7 +1,7 @@
 '''
 Author: Yuxi Chen
 Date: 2022-03-15 17:49:50
-LastEditTime: 2022-04-08 10:54:57
+LastEditTime: 2022-04-09 16:03:26
 LastEditors: Ethan Chen
 Description:
 FilePath: /CMPUT414/src/data.py
@@ -116,7 +116,9 @@ class ModelNet40(Dataset):
             rotatedCloud = rotation(pointCloud.copy(), 1)
             cutout_pointcloud = cutout(pointCloud.copy(), 1)
             np.random.shuffle(pointCloud)
-        return ground_truth, (cutout_pointcloud, translatedCloud, noiseCloud, rotatedCloud), label
+            return ground_truth, (cutout_pointcloud, translatedCloud, noiseCloud, rotatedCloud), label
+        elif self.partition == 'test':
+            return ground_truth, label
 
     def __len__(self):
         return self.data.shape[0]
