@@ -1,7 +1,7 @@
 '''
 Author: Yuxi Chen
 Date: 2022-03-15 17:49:50
-LastEditTime: 2022-04-11 01:18:48
+LastEditTime: 2022-04-11 04:42:45
 LastEditors: Ethan Chen
 Description:
 FilePath: /CMPUT414/src/data.py
@@ -100,32 +100,43 @@ def plot_point_cloud(data, label=None, save_path='./', save_file=False):
 
 
 class ModelNet40(Dataset):
-    def __init__(self, num_points, data_path, severity=1):
+    def __init__(self, num_points, data_path, num_coarse=128, severity=1):
         super().__init__()
         self.data, self.label = load_data(data_path)
         self.num_points = num_points
         self.severity = severity
+        self.num_coarse = num_coarse
 
     def __getitem__(self, index):
+        # the original data
         pointCloud = self.data[index][:self.num_points]
+        coarseCloud = self.data[index][:self.num_coarse]
         label = self.label[index]
-        translatedCloud = translate_pointcloud(pointCloud.copy())
-        rotatedCloud = rotation(pointCloud.copy(), self.severity)
 
-        cutout_pointCloud = cutout(pointCloud.copy(), self.severity)
-        cutout_translatedCloud = cutout(translatedCloud.copy(), self.severity)
-        cutout_rotatedCloud = cutout(rotatedCloud.copy(), self.severity)
+        # for the data augmentation
+        translatedCloud, translatedCoarse = translate_pointcloud(pointCloud.copy(), coarseCloud.copy())
+        rotatedCloud, rotatedCoarse = rotation(pointCloud.copy(), coarseCloud.copy(), self.severity)
 
+        # for the input of the network
+        cutoutCloud = cutout(pointCloud.copy(), self.severity)
+        translatedCutout = cutout(translatedCloud.copy(), self.severity)
+        rotatedCutout = cutout(rotatedCloud.copy(), self.severity)
+
+        # shuffle the data
         np.random.shuffle(pointCloud)
+        np.random.shuffle(coarseCloud)
+        np.random.shuffle(translatedCoarse)
+        np.random.shuffle(rotatedCoarse)
         np.random.shuffle(translatedCloud)
         np.random.shuffle(rotatedCloud)
-        np.random.shuffle(cutout_pointCloud)
-        np.random.shuffle(cutout_translatedCloud)
-        np.random.shuffle(cutout_rotatedCloud)
+        np.random.shuffle(cutoutCloud)
+        np.random.shuffle(translatedCutout)
+        np.random.shuffle(rotatedCutout)
+        assert coarseCloud.shape == translatedCoarse.shape == rotatedCoarse.shape
 
-        original = (pointCloud, cutout_pointCloud)
-        translated = (translatedCloud, cutout_translatedCloud)
-        rotated = (rotatedCloud, cutout_rotatedCloud)
+        original = (pointCloud, coarseCloud, cutoutCloud)
+        translated = (translatedCloud, translatedCoarse, translatedCutout)
+        rotated = (rotatedCloud, rotatedCoarse, rotatedCutout)
 
         return original, translated, rotated, label
 
@@ -145,26 +156,16 @@ if __name__ == '__main__':
     # print("Label", example_label)
 
     original, translated, rotated, label = train[0]
-    a, b = original
-    c, d = translated
-    e, f = rotated
+    a0, a1, a2 = original
+    b0, b1, b2 = translated
+    c0, c1, c2 = rotated
 
-    # plot_point_cloud(example_data_translated, example_label, './images/')
-    # plot_point_cloud(example_data_noise, example_label, './images/')
-    # plot_point_cloud(example_data_rotated, example_label, './images/')
     fig = plt.figure()
     ax = fig.add_subplot(projection='3d')
-    ax.scatter(a[:, 0], a[:, 1], a[:, 2], '.')
-    ax.scatter(b[:, 0], b[:, 1], b[:, 2], '.', color='r', label='gt')
-    # ax.scatter(d[:, 0], d[:, 1], d[:, 2], '.', color='b', label='translated')
-    # ax.scatter(f[:, 0], f[:, 1], f[:, 2], '.', color='y', label='cutout')
-
-    # ax.scatter(example_data_translated[:, 0], example_data_translated[:, 1],
-    #            example_data_translated[:, 2], '.', color='b', label='translated')
-    # ax.scatter(example_data_noise[:, 0], example_data_noise[:, 1],
-    #            example_data_noise[:, 2], '.', color='g', label='noise')
-    # ax.scatter(example_data_rotated[:, 0], example_data_rotated[:, 1],
-    #            example_data_rotated[:, 2], '.', color='y', label='rotated')
+    ax.scatter(a1[:, 0], a1[:, 1], a1[:, 2], '.')
+    ax.scatter(b1[:, 0], b1[:, 1], b1[:, 2], '.')
+    ax.scatter(c1[:, 0], c1[:, 1], c1[:, 2], '.')
+    # ax.scatter(b[:, 0], b[:, 1], b[:, 2], '.', color='r', label='gt')
 
     plt.show()
     # label_set = {}

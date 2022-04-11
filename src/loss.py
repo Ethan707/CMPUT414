@@ -1,7 +1,7 @@
 '''
 Author: Ethan Chen
 Date: 2022-04-08 07:37:13
-LastEditTime: 2022-04-11 00:19:21
+LastEditTime: 2022-04-11 04:41:18
 LastEditors: Ethan Chen
 Description: 
 FilePath: /CMPUT414/src/loss.py
@@ -15,6 +15,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torch
+
+# pointnet pytorch
+# https://github.com/fxia22/pointnet.pytorch
+# https://arxiv.org/abs/1612.00593
 
 
 class STN3d(nn.Module):
