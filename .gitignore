@@ -13,4 +13,5 @@ src/__pycache__
 *.pyd
 model/*
 images/*
-test
+model_2/*
+test.py
