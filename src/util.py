@@ -1,7 +1,7 @@
 '''
 Author: Ethan Chen
 Date: 2022-04-08 07:53:02
-LastEditTime: 2022-04-08 10:04:34
+LastEditTime: 2022-04-11 04:25:53
 LastEditors: Ethan Chen
 Description: 
 FilePath: /CMPUT414/src/util.py
@@ -25,15 +25,16 @@ def normalize(new_pc):
     return new_pc
 
 
-def translate_pointcloud(pointcloud):
+def translate_pointcloud(pointcloud, coarse):
     xyz1 = np.random.uniform(low=2./3., high=3./2., size=[3])
     xyz2 = np.random.uniform(low=-0.2, high=0.2, size=[3])
 
     translated_pointcloud = np.add(np.multiply(pointcloud, xyz1), xyz2).astype('float32')
-    return translated_pointcloud
+    translate_coarse = np.add(np.multiply(coarse, xyz1), xyz2).astype('float32')
+    return translated_pointcloud, translate_coarse
 
 
-def rotation(pointcloud, severity: int):
+def rotation(pointcloud, coarse, severity: int):
     N, C = pointcloud.shape
     c = [2.5, 5, 7.5, 10, 15][severity-1]
     theta = np.random.uniform(c-2.5, c+2.5) * np.random.choice([-1, 1]) * np.pi / 180.
@@ -48,16 +49,11 @@ def rotation(pointcloud, severity: int):
     new_pc = np.matmul(new_pc, matrix_2)
     new_pc = np.matmul(new_pc, matrix_3).astype('float32')
 
-    return normalize(new_pc)
+    new_coarse = np.matmul(coarse, matrix_1)
+    new_coarse = np.matmul(new_coarse, matrix_2)
+    new_coarse = np.matmul(new_coarse, matrix_3).astype('float32')
 
-
-def uniform_noise(pointcloud, severity: int):
-    # TODO
-    N, C = pointcloud.shape
-    c = [0.01, 0.02, 0.03, 0.04, 0.05][severity-1]
-    jitter = np.random.uniform(-c, c, (N, C))
-    new_pc = (pointcloud + jitter).astype('float32')
-    return normalize(new_pc)
+    return normalize(new_pc), normalize(new_coarse)
 
 
 def cutout(pointcloud, severity: int):
