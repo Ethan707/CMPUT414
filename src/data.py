@@ -1,7 +1,7 @@
 '''
 Author: Yuxi Chen
 Date: 2022-03-15 17:49:50
-LastEditTime: 2022-04-11 04:42:45
+LastEditTime: 2022-04-11 18:08:24
 LastEditors: Ethan Chen
 Description:
 FilePath: /CMPUT414/src/data.py
@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 import numpy as np
 import h5py
 from util import *
+import open3d as o3d
 
 SHAPE = ["airplane",
          "bathtub",
@@ -86,17 +87,40 @@ def load_data(data_path):
     return all_data, all_label
 
 
-def plot_point_cloud(data, label=None, save_path='./', save_file=False):
+def plot_point_cloud(data):
+    # plot the point cloud with pyplot
     # data: (N, 3)
     # label: (N,)
     # save_path: str
     fig = plt.figure()
     ax = fig.add_subplot(projection='3d')
     ax.scatter(data[:, 0], data[:, 1], data[:, 2], '.')
-    if label is not None and save_file:
-        file_path = save_path+str(label)+'.png'
-        plt.savefig(file_path)
     plt.show()
+
+
+def plot_point_cloud_one_view(pointclouds, file_name, titles, suptitle='', sizes=None, cmap='Reds', zdir='y',
+                              xlim=(-0.5, 0.5), ylim=(-0.5, 0.5), zlim=(-0.5, 0.5)):
+    if sizes is None:
+        sizes = [0.5 for i in range(len(pointclouds))]
+    fig = plt.figure(figsize=(len(pointclouds)*3*1.4, 3*1.4))
+    elev = 30
+    azim = -45
+    for i, (pointclouds, size) in enumerate(zip(pointclouds, sizes)):
+        color = pointclouds[:0]
+        ax = fig.add_subplot(1, len(pointclouds), i+1, projection='3d')
+        ax.view_init(elev=elev, azim=azim)
+        ax.scatter(pointclouds[:, 0], pointclouds[:, 1], pointclouds[:, 2],
+                   zdir=zdir, c=color, s=size, cmap=cmap, vmin=-1.0, vmax=0.5)
+        ax.set_title(titles[i])
+        ax.set_axis_off()
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.set_zlim(zlim)
+    plt.suptitle(suptitle)
+    plt.subplots_adjust(left=0.05, right=0.95, top=0.9, bottom=0.1, wspace=0.1, hspace=0.1)
+    plt.show()
+    fig.savefig(file_name)
+    plt.close()
 
 
 class ModelNet40(Dataset):
