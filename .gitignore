@@ -10,7 +10,7 @@ test
 *.pyo
 *.so
 *.pyd
-# model/*
+model/*
 images/*
 model_2/*
 test.py

@@ -1,14 +1,14 @@
 '''
 Author: Ethan Chen
 Date: 2022-03-16 17:47:49
-LastEditTime: 2022-04-11 05:36:55
+LastEditTime: 2022-04-11 20:06:10
 LastEditors: Ethan Chen
 Description:
 FilePath: /CMPUT414/src/train.py
 '''
+from unittest import result
 from loss import *
 from torchsummary import summary
-from pytorch3d.loss import chamfer_distance
 from model import *
 from data import *
 import argparse
@@ -18,7 +18,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from metrics.loss import cd_loss_L1, cd_loss_L2
-from metrics.metric import l1_cd
+from metrics.metric import l1_cd, l2_cd, f_score
 # TODO:
 # 1. chamer_distance + classification loss
 # 2. add the laplace GAN
@@ -32,7 +32,8 @@ TRAIN_DATA_PATH = '/home/ethan/Code/Project/CMPUT414/data/modelnet40_ply_hdf5_20
 TEST_DATA_PATH = '/home/ethan/Code/Project/CMPUT414/data/modelnet40_ply_hdf5_2048/test_files.txt'
 LOSS_MODEL_PATH_2048 = '/home/ethan/Code/Project/CMPUT414/model/loss_network_2048.pth'
 LOSS_MODEL_PATH_128 = '/home/ethan/Code/Project/CMPUT414/model/loss_network_128.pth'
-COMPLETION_MODEL_PATH = '/home/ethan/Code/Project/CMPUT414/model/completion_network.pth'
+COMPLETION_MODEL_PATH = '/home/ethan/Code/Project/CMPUT414/model/completion_network_gridsize_2.pth'
+EVALUATE_RESULT_PATH = '/home/ethan/Code/Project/CMPUT414/results/'
 
 
 def train_loss_network(model, path, num_epoch=100, num_points=2048, device='cuda'):
@@ -140,7 +141,8 @@ def train_completion_network(model, loss1, loss2, path, device, num_epoch=400):
             optimizer.step()
             train_step += 1
         scheduler.step()
-        print("epoch: {}, loss1: {}, loss2: {}, loss: {}".format(epoch, loss1.item(), loss2.item(), loss.item()))
+        print("epoch: {}, loss1: {}, loss2: {}, loss: {}".format(
+            epoch, loss1.item()*1e3, loss2.item()*1e3, loss.item()*1e3))
 
         model.eval()
         test_loss = 0
@@ -150,13 +152,98 @@ def train_completion_network(model, loss1, loss2, path, device, num_epoch=400):
                 cutout = original[2].to(device)
                 coarse_pred, dense_pred = model(cutout)
                 test_loss += l1_cd(dense_pred, original[0].to(device))
-            print("L1 CD: {}".format(test_loss / len(test_loader.dataset)))
+            print("L1 CD: {}".format(test_loss / len(test_loader.dataset)*1e3))
         if test_loss / len(test_loader.dataset) < best_l1_cd:
             best_l1_cd = test_loss / len(test_loader.dataset)
             best_epoch = epoch
             torch.save(model.state_dict(), path)
     print("Best L1 CD: {}, at epoch: {}".format(best_l1_cd, best_epoch))
-    # print("Hello")
+
+
+def evaluate_single(model, input, data, device):
+    _, dense_pred = model(input[2].to(device))
+    return (l1_cd(dense_pred, data[0].to(device)), l2_cd(dense_pred, data[0].to(device)), f_score(dense_pred, data[0].to(device)))
+
+
+def evaluate_single_class(shape, model, path):
+    modelnet40_test = ModelNet40(num_points=2048, data_path=TEST_DATA_PATH)
+    test_loader = DataLoader(modelnet40_test, num_workers=8, batch_size=32, shuffle=True, drop_last=True)
+
+    # make dir
+    shape_dir = os.path.join(path, shape)
+    image_dir = os.path.join(shape_dir, 'images')
+    output_dir = os.path.join(shape_dir, 'output')
+    os.makedirs(shape_dir)
+    os.makedirs(image_dir)
+    os.makedirs(output_dir)
+
+    # evaluate model
+    original_l1_cd, original_l2_cd, original_f1 = 0, 0, 0
+    translated_l1_cd, translated_l2_cd, translated_f1 = 0, 0, 0
+    rotated_l1_cd, rotated_l2_cd, rotated_f1 = 0, 0, 0
+    with torch.no_grad:
+        for i, data in test_loader:
+            original, translated, rotated, label = data
+            # original
+            result = evaluate_single(model, original, data, device)
+            original_l1_cd += result[0]
+            original_l2_cd += result[1]
+            original_f1 += result[2]
+
+            # translated
+            _, dense_pred = model(translated[2].to(device))
+            translated_l1_cd += l1_cd(dense_pred, translated[0].to(device))
+            translated_l2_cd += l2_cd(dense_pred, translated[0].to(device))
+            translated_f1 += f_score(dense_pred, translated[0].to(device))
+
+            # rotated
+            _, dense_pred = model(rotated[2].to(device))
+            rotated_l1_cd += l1_cd(dense_pred, rotated[0].to(device))
+            rotated_l2_cd += l2_cd(dense_pred, rotated[0].to(device))
+            rotated_f1 += f_score(dense_pred, rotated[0].to(device))
+
+    ave_original_l1_cd = original_l1_cd / len(test_loader.dataset)
+    ave_original_l2_cd = original_l2_cd / len(test_loader.dataset)
+    ave_original_f1 = original_f1 / len(test_loader.dataset)
+
+    ave_translated_l1_cd = translated_l1_cd / len(test_loader.dataset)
+    ave_translated_l2_cd = translated_l2_cd / len(test_loader.dataset)
+    ave_translated_f1 = translated_f1 / len(test_loader.dataset)
+
+    ave_rotated_l1_cd = rotated_l1_cd / len(test_loader.dataset)
+    ave_rotated_l2_cd = rotated_l2_cd / len(test_loader.dataset)
+    ave_rotated_f1 = rotated_f1 / len(test_loader.dataset)
+
+    result_original = (ave_original_l1_cd, ave_original_l2_cd, ave_original_f1)
+    result_translated = (ave_translated_l1_cd, ave_translated_l2_cd, ave_translated_f1)
+    result_rotated = (ave_rotated_l1_cd, ave_rotated_l2_cd, ave_rotated_f1)
+
+    return result_original, result_translated, result_rotated
+
+
+def evaluate_model(completion_model):
+    from datetime import datetime
+    path = os.path.join(EVALUATE_RESULT_PATH, datetime.now().strftime("%m-%d-%H-%M-%S"))
+    os.makedirs(path)
+    completion_model.eval()
+    original_l1_cd_list, original_l2_cd_list, original_f1_list = [], [], []
+    translated_l1_cd_list, translated_l2_cd_list, translated_f1_list = [], [], []
+    rotated_l1_cd_list, rotated_l2_cd_list, rotated_f1_list = [], [], []
+    for shape in SHAPE:
+        result_original, result_translated, result_rotated = evaluate_single_class(shape, completion_model, path)
+        original_l1_cd_list.append(result_original[0])
+        original_l2_cd_list.append(result_original[1])
+        original_f1_list.append(result_original[2])
+
+        translated_l1_cd_list.append(result_translated[0])
+        translated_l2_cd_list.append(result_translated[1])
+        translated_f1_list.append(result_translated[2])
+
+        rotated_l1_cd_list.append(result_rotated[0])
+        rotated_l2_cd_list.append(result_rotated[1])
+        rotated_f1_list.append(result_rotated[2])
+        print("{} L1 CD: {}, L2 CD: {}, F1: {}".format(
+            shape, original_l1_cd_list[0], original_l2_cd_list[1], original_f1_list[2]))
 
 
 if __name__ == "__main__":
@@ -168,7 +255,7 @@ if __name__ == "__main__":
     # model
     loss_2048 = PointNetCls(k=40)
     loss_128 = PointNetCls(k=40)
-    completion_network = PCN(num_dense=2048)
+    completion_network = PCN(num_dense=2048, grid_size=2)
 
     # arguments
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -179,12 +266,14 @@ if __name__ == "__main__":
         train_loss_network(loss_2048, path=LOSS_MODEL_PATH_2048, num_epoch=num_epoch, num_points=2048, device=device)
     loss_2048.load_state_dict(torch.load(LOSS_MODEL_PATH_2048))
     loss_2048.to(device)
+    print("Loaded loss network 2048.")
 
     if not os.path.exists(LOSS_MODEL_PATH_128):
         print("Training loss network 128...")
         train_loss_network(loss_128, path=LOSS_MODEL_PATH_128, num_epoch=num_epoch, num_points=128, device=device)
     loss_128.load_state_dict(torch.load(LOSS_MODEL_PATH_128))
     loss_128.to(device)
+    print("Loaded loss network 128.")
 
     if not os.path.exists(COMPLETION_MODEL_PATH):
         print("Training completion network...")
@@ -192,5 +281,7 @@ if __name__ == "__main__":
                                  loss2=loss_2048, num_epoch=400, device=device)
     completion_network.load_state_dict(torch.load(COMPLETION_MODEL_PATH))
     completion_network.to(device)
+    print("Training finished.")
 
-    # evaluate
+    # evaluate model and save results
+    evaluate_model(completion_network)
