@@ -15,3 +15,5 @@ images/*
 model_2/*
 test.py
 *__pycache__
+*build
+results
