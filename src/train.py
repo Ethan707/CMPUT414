@@ -1,11 +1,12 @@
 '''
 Author: Ethan Chen
 Date: 2022-03-16 17:47:49
-LastEditTime: 2022-04-13 00:55:01
+LastEditTime: 2022-04-14 12:05:41
 LastEditors: Ethan Chen
 Description:
 FilePath: /CMPUT414/src/train.py
 '''
+import sys
 from unittest import result
 from loss import *
 from torchsummary import summary
@@ -24,7 +25,10 @@ from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
 # TODO:
-# 2. l-GAN
+# 1. different severity
+# 2. implement different model (GAN)
+# 3. try different feature map
+# 4. implement different dataset (completion3d or shapeNet)
 
 
 TRAIN_DATA_PATH = '/home/ethan/Code/Project/CMPUT414/data/modelnet40_ply_hdf5_2048/train_files.txt'
@@ -33,7 +37,7 @@ LOSS_MODEL_PATH_2048 = '/home/ethan/Code/Project/CMPUT414/model/loss_network_204
 LOSS_MODEL_PATH_128 = '/home/ethan/Code/Project/CMPUT414/model/loss_network_128.pth'
 COMPLETION_MODEL_PATH = '/home/ethan/Code/Project/CMPUT414/model/completion_network_gridsize_4_CD_PN_loss.pth'
 EVALUATE_RESULT_PATH = '/home/ethan/Code/Project/CMPUT414/results/'
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+EXPERIMENT = ''
 
 
 def write_result(name, path, shape, result_original, result_translated, result_rotated):
@@ -51,7 +55,7 @@ def init_result(path):
                           'translated_l2_cd', 'translated_f1', 'rotated_l1_cd', 'rotated_l2_cd', 'rotated_f1'])
 
 
-def train_loss_network(model, path, num_epoch=100, num_points=2048):
+def train_loss_network(model, args):
     modelnet40_train = ModelNet40(num_points=num_points, data_path=TRAIN_DATA_PATH)
     modelnet40_test = ModelNet40(num_points=num_points, data_path=TEST_DATA_PATH)
     train_loader = DataLoader(modelnet40_train, num_workers=8, batch_size=32, shuffle=True, drop_last=True)
@@ -110,23 +114,27 @@ def train_loss_network(model, path, num_epoch=100, num_points=2048):
     print("Best accuracy: {}, at epoch: {}".format(best_acc, best_epoch))
 
 
-def train_completion_network(model, loss1, loss2, path, use_augmentation=False, num_epoch=400):
-    modelnet40_train = ModelNet40(num_points=2048, data_path=TRAIN_DATA_PATH)
-    modelnet40_test = ModelNet40(num_points=2048, data_path=TEST_DATA_PATH)
+def train_completion_network(model, loss1, loss2, args):
+    if args.dataset == 'modelnet40':
+        train_set = ModelNet40(num_points=2048, data_path=TRAIN_DATA_PATH)
+        test_set = ModelNet40(num_points=2048, data_path=TEST_DATA_PATH)
+    elif args.dataset == 'shapenet':
+        train_set = ShapeNet()
+        test_set = ShapeNet()
+        validate_set = ShapeNet()
+    # TODO: add more dataset
+    train_loader = DataLoader(train_set, num_workers=8, batch_size=args.batch_size, shuffle=True)
+    test_loader = DataLoader(test_set, num_workers=8, batch_size=args.batch_size, shuffle=True)
 
-    train_loader = DataLoader(modelnet40_train, num_workers=8, batch_size=32, shuffle=True, drop_last=True)
-    test_loader = DataLoader(modelnet40_test, num_workers=8, batch_size=32, shuffle=True, drop_last=True)
-
-    model.to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.7)
 
     best_l1_cd = 1e8
     best_epoch = 0
     train_step = 0
 
-    print("Total epoch: {}".format(num_epoch))
-    for epoch in range(num_epoch):
+    print("Total epoch: {}".format(args.epochs))
+    for epoch in range(args.epochs):
         if train_step < 10000:
             alpha = 0.01
         elif train_step < 20000:
@@ -136,18 +144,23 @@ def train_completion_network(model, loss1, loss2, path, use_augmentation=False, 
         else:
             alpha = 1.0
         model.train()
-        for i, data in enumerate(tqdm(train_loader)):
+
+        for _, data in enumerate(tqdm(train_loader)):
             original, translated, rotated, _ = data
 
             # original data
             cutout = original[2].to(DEVICE)
             optimizer.zero_grad()
             coarse_pred, dense_pred = model(cutout)
-            coarse_loss = loss1(coarse_pred, original[1].to(DEVICE))
-            dense_loss = loss2(dense_pred, original[0].to(DEVICE))
+
             cd_1 = cd_loss_L1(coarse_pred, original[1].to(DEVICE))
             cd_2 = cd_loss_L1(dense_pred, original[0].to(DEVICE))
-            loss = 0.001*dense_loss+cd_2 + alpha * (0.001*coarse_loss + cd_1)
+            if use_loss:
+                coarse_loss = loss1(coarse_pred, original[1].to(DEVICE))
+                dense_loss = loss2(dense_pred, original[0].to(DEVICE))
+                loss = 0.001*dense_loss+cd_2 + alpha * (0.001*coarse_loss + cd_1)
+            else:
+                loss = cd_2 + alpha * cd_1
             loss.backward()
             optimizer.step()
 
@@ -155,39 +168,48 @@ def train_completion_network(model, loss1, loss2, path, use_augmentation=False, 
                 cutout = translated[2].to(DEVICE)
                 optimizer.zero_grad()
                 coarse_pred, dense_pred = model(cutout)
-                coarse_loss = loss1(coarse_pred, translated[1].to(DEVICE))
-                dense_loss = loss2(dense_pred, translated[0].to(DEVICE))
+
                 cd_1 = cd_loss_L1(coarse_pred, translated[1].to(DEVICE))
                 cd_2 = cd_loss_L1(dense_pred, translated[0].to(DEVICE))
-                loss = 0.001*dense_loss+cd_2 + alpha * (0.001*coarse_loss + cd_1)
+                if use_loss:
+                    coarse_loss = loss1(coarse_pred, translated[1].to(DEVICE))
+                    dense_loss = loss2(dense_pred, translated[0].to(DEVICE))
+                    loss = 0.001*dense_loss+cd_2 + alpha * (0.001*coarse_loss + cd_1)
+                else:
+                    loss = cd_2 + alpha * cd_1
                 loss.backward()
                 optimizer.step()
 
                 cutout = rotated[2].to(DEVICE)
                 optimizer.zero_grad()
                 coarse_pred, dense_pred = model(cutout)
-                coarse_loss = loss1(coarse_pred, rotated[1].to(DEVICE))
-                dense_loss = loss2(dense_pred, rotated[0].to(DEVICE))
+
                 cd_1 = cd_loss_L1(coarse_pred, rotated[1].to(DEVICE))
                 cd_2 = cd_loss_L1(dense_pred, rotated[0].to(DEVICE))
-                loss = 0.001*dense_loss+cd_2 + alpha * (0.001*coarse_loss + cd_1)
+                if use_loss:
+                    coarse_loss = loss1(coarse_pred, rotated[1].to(DEVICE))
+                    dense_loss = loss2(dense_pred, rotated[0].to(DEVICE))
+                    loss = 0.001*dense_loss+cd_2 + alpha * (0.001*coarse_loss + cd_1)
+                else:
+                    loss = cd_2 + alpha * cd_1
+
                 loss.backward()
                 optimizer.step()
 
             train_step += 1
         scheduler.step()
-        print("epoch: {}, loss1: {}, loss2: {}, loss: {}".format(
-            epoch, coarse_loss.item(), dense_loss.item(), loss.item()))
+        # print("epoch: {}, loss1: {}, loss2: {}, loss: {}".format(
+        #     epoch, coarse_loss.item(), dense_loss.item(), loss.item()))
 
         model.eval()
         test_loss = 0
         with torch.no_grad():
-            for i, data in enumerate(tqdm(test_loader)):
+            for _, data in enumerate(tqdm(test_loader)):
                 original, translated, rotated, _ = data
                 cutout = original[2].to(DEVICE)
                 coarse_pred, dense_pred = model(cutout)
                 test_loss += l1_cd(dense_pred, original[0].to(DEVICE))
-            print("L1 CD: {}".format(test_loss / len(test_loader.dataset)*1e3))
+            print("epoch {}, L1 CD: {}".format(epoch, test_loss / len(test_loader.dataset)*1e3))
         if test_loss / len(test_loader.dataset) < best_l1_cd:
             best_l1_cd = test_loss / len(test_loader.dataset)
             best_epoch = epoch
@@ -195,12 +217,12 @@ def train_completion_network(model, loss1, loss2, path, use_augmentation=False, 
     print("Best L1 CD: {}, at epoch: {}".format(best_l1_cd, best_epoch))
 
 
-def evaluate_single(model, pc):
-    _, pred = model(pc[2].to(DEVICE))
+def evaluate_single(model, pc, args):
+    _, pred = model(pc[2].to(args.device))
     f1, l1cd, l2cd = 0, 0, 0
 
-    l1cd += l1_cd(pred, pc[0].to(DEVICE)).item()
-    l2cd += l2_cd(pred, pc[0].to(DEVICE)).item()
+    l1cd += l1_cd(pred, pc[0].to(args.device)).item()
+    l2cd += l2_cd(pred, pc[0].to(args.device)).item()
 
     # print(len(pc[0]))
     for i in range(len(pc[0])):
@@ -211,17 +233,9 @@ def evaluate_single(model, pc):
     return (l1cd, l2cd, f1)
 
 
-def evaluate_single_shape(shape, model):
+def evaluate_single_shape(shape, model, args):
     modelnet40_test = ModelNet40(num_points=2048, data_path=TEST_DATA_PATH, shape=shape)
     test_loader = DataLoader(modelnet40_test, num_workers=8, batch_size=32, shuffle=True)
-
-    # make dir
-    # shape_dir = os.path.join(path, shape)
-    # image_dir = os.path.join(shape_dir, 'images')
-    # output_dir = os.path.join(shape_dir, 'output')
-    # os.makedirs(shape_dir)
-    # os.makedirs(image_dir)
-    # os.makedirs(output_dir)
 
     # evaluate model
 
@@ -233,19 +247,19 @@ def evaluate_single_shape(shape, model):
     with torch.no_grad():
         for original, translated, rotated, _ in test_loader:
             # original
-            result = evaluate_single(model, original)
+            result = evaluate_single(model, original, args)
             original_l1_cd += result[0]
             original_l2_cd += result[1]
             original_f1 += result[2]
 
             # translated
-            result = evaluate_single(model, translated)
+            result = evaluate_single(model, translated, args)
             translated_l1_cd += result[0]
             translated_l2_cd += result[1]
             translated_f1 += result[2]
 
             # rotated
-            result = evaluate_single(model, rotated)
+            result = evaluate_single(model, rotated, args)
             rotated_l1_cd += result[0]
             rotated_l2_cd += result[1]
             rotated_f1 += result[2]
@@ -269,78 +283,139 @@ def evaluate_single_shape(shape, model):
     return result_original, result_translated, result_rotated
 
 
-def evaluate_model(completion_model, name):
+def evaluate_model(completion_model, args):
 
-    path = os.path.join(EVALUATE_RESULT_PATH, datetime.now().strftime("%m-%d-%H-%M-%S"))
+    path = os.path.join(EVALUATE_RESULT_PATH, args.experiment_name)
+    if os.path.exists(path):
+        path = os.path.join(path, datetime.now().strftime('%m-%d-%H-%M-%S'))
     os.makedirs(path)
     print("Evaluate model: {}".format(path))
     init_result(path)
 
     completion_model.eval()
-    for shape in range(40):
-        print("Shape: {}".format(SHAPE_NAME[shape]))
-        result_original, result_translated, result_rotated = evaluate_single_shape(shape, completion_model)
-        write_result(name, path, shape, result_original, result_translated, result_rotated)
+    if args.dataset == 'modelnet40':
+        for shape in range(40):
+            print("Shape: {}".format(SHAPE_NAME[shape]))
+            result_original, result_translated, result_rotated = evaluate_single_shape(shape, completion_model, args)
+            write_result(args.experiment_name, path, shape, result_original, result_translated, result_rotated)
+    elif args.dataset == 'shapenet':
+        for shape in range(len(SHAPE_NAME)):
+            print("Shape: {}".format(SHAPE_NAME[shape]))
+            result_original, result_translated, result_rotated = evaluate_single_shape(shape, completion_model, args)
+            write_result(args.experiment_name, path, shape, result_original, result_translated, result_rotated)
 
 
 if __name__ == "__main__":
-    random.seed(1234)
-    torch.manual_seed(1234)
-    torch.cuda.manual_seed(1234)
-    torch.cuda.manual_seed_all(1234)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='modelnet40', help='dataset name')
+    parser.add_argument('--batch_size', type=int, default=32, help='batch size')
+    parser.add_argument('--epochs', type=int, default=400, help='epochs')
+    parser.add_argument('--lr', type=float, default=0.0001, help='learning rate')
+    parser.add_argument('--seed', type=int, default=1234, help='random seed')
+    parser.add_argument('--save_model', action='store_true', help='For Saving the current Model')
+    parser.add_argument('--device', type=str, default='cuda', help='device for training')
+    parser.add_argument('--use_augmentation', action='store_true', help='For data augmentation')
+    parser.add_argument('--loss_net', type=str, default='PointNet', help='loss network')
+    parser.add_argument('--experiment', type=str, default='', help='experiment name')
+    parser.add_argument('--action', type=str, default='train', help='action name[train/evaluate]')
 
-    # model
-    loss_2048 = PointNetCls(k=40)
-    loss_128 = PointNetCls(k=40)
-    completion_network = PCN(num_dense=2048, grid_size=4)
-    continue_training = True
+    args = parser.parse_args()
 
-    # arguments
-    num_epoch = 400
-    # load & train model
-    if not os.path.exists(LOSS_MODEL_PATH_2048):
-        print("Training loss network 2048...")
-        train_loss_network(loss_2048, path=LOSS_MODEL_PATH_2048, num_epoch=num_epoch, num_points=2048)
-    loss_2048.load_state_dict(torch.load(LOSS_MODEL_PATH_2048))
-    loss_2048.to(DEVICE)
-    print("Loaded loss network 2048.")
+    # set up seeds
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if args.device == 'cuda':
+        torch.cuda.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
 
-    if not os.path.exists(LOSS_MODEL_PATH_128):
-        print("Training loss network 128...")
-        train_loss_network(loss_128, path=LOSS_MODEL_PATH_128, num_epoch=num_epoch, num_points=128)
-    loss_128.load_state_dict(torch.load(LOSS_MODEL_PATH_128))
-    loss_128.to(DEVICE)
-    print("Loaded loss network 128.")
+    # set up experiment name
+    if args.experiment == '':
+        args.experiment = 'PCN_'+args.loss_net+'_'+args.dataset+'_'+str(args.epochs)+'_'+str(args.seed)
+    if args.use_augmentation:
+        args.experiment += '_augmentation'
+    print("Experiment: {}".format(args.experiment))
 
-    dense_loss = PointNetLoss(loss_2048, DEVICE, 0.1)
-    coarse_loss = PointNetLoss(loss_128, DEVICE, 0.1)
+    assert args.action in ['train', 'evaluate']
 
-    # if not os.path.exists(COMPLETION_MODEL_PATH) or continue_training:
-    #     print("Training completion network...")
-    #     if continue_training:
-    #         print("Continue training completion network...")
-    #         completion_network.load_state_dict(torch.load(COMPLETION_MODEL_PATH))
-    #         completion_network.to(DEVICE)
-    #     train_completion_network(completion_network, path=COMPLETION_MODEL_PATH,
-    #                              loss1=coarse_loss, loss2=dense_loss, num_epoch=num_epoch)
-    #     print("Training finished.")
-    # completion_network.load_state_dict(torch.load(COMPLETION_MODEL_PATH))
-    # completion_network.to(DEVICE)
-    # print("Loaded completion network.")
+    # TODO:
+    if args.action == 'evaluate':
+        # load model
+        if not os.path.exists():
+            pass
+        # evaluate_model(, args.experiment)
+        sys.exit(0)
 
-    # evaluate model and save results
-    # evaluate_model(completion_network, "PCN_gridsize_1_CD_PN")
-    # print("Evaluation finished.")
+    # set up or train loss network (PointNet or DGCNN)
+    if args.loss_net == 'PointNet':
+        if args.dataset == 'modelnet40':
+            loss_net_dense = PointNetCls(k=40)
+            loss_net_coarse = PointNetCls(k=40)
 
-    EXPERIMENT = [
-        "PCN_gridsize_4_CD_AUGMENT",
-        "PCN_gridsize_4_CD_PN_AUGMENT",
-    ]
+            # if not exist pretrained model, train from scratch
+            if not os.path.exists(os.path.join('')):
+                train_loss_network()
+            else:
+                loss_net_dense.load_state_dict(torch.load(os.path.join('')))
+                loss_net_coarse.load_state_dict(torch.load(os.path.join('')))
 
-    for experiment in EXPERIMENT:
-        completion_network = PCN(num_dense=2048, grid_size=4)
-        COMPLETION_MODEL_PATH = '/home/ethan/Code/Project/CMPUT414/model/{}.pth'.format(experiment)
-        train_completion_network(completion_network, path=COMPLETION_MODEL_PATH,
-                                 loss1=coarse_loss, loss2=dense_loss, num_epoch=num_epoch, use_augmentation=True)
-        evaluate_model(completion_network, experiment)
-        print(experiment+"Evaluation finished.")
+            dense_loss = PointNetLoss(loss_net_dense, args.device, 0.1)
+            coarse_loss = PointNetLoss(loss_net_coarse, args.device, 0.1)
+
+        elif args.dataset == 'shapenet':
+            loss_net_dense = ...
+            loss_net_coarse = ...
+
+            # if not exist pretrained model, train from scratch
+            if not os.path.exists(os.path.join('')):
+                train_loss_network()
+            else:
+                loss_net_dense.load_state_dict(torch.load(os.path.join('')))
+                loss_net_coarse.load_state_dict(torch.load(os.path.join('')))
+            dense_loss = PointNetLoss(loss_net_dense, args.device, 0.1)
+            coarse_loss = PointNetLoss(loss_net_coarse, args.device, 0.1)
+        else:
+            assert False, "Dataset not supported"
+
+    elif args.loss_net == 'DGCNN':
+        if args.dataset == 'modelnet40':
+            loss_net_dense = ...
+            loss_net_coarse = ...
+
+            # if not exist pretrained model, train from scratch
+            if not os.path.exists(os.path.join('')):
+                pass
+            else:
+                loss_net_dense.load_state_dict(torch.load(os.path.join('')))
+                loss_net_coarse.load_state_dict(torch.load(os.path.join('')))
+        elif args.dataset == 'shapenet':
+            loss_net_dense = ...
+            loss_net_coarse = ...
+
+            # if not exist pretrained model, train from scratch
+            if not os.path.exists(os.path.join('')):
+                pass
+            else:
+                loss_net_dense.load_state_dict(torch.load(os.path.join('')))
+                loss_net_coarse.load_state_dict(torch.load(os.path.join('')))
+        else:
+            assert False, "Dataset not supported"
+
+    elif args.loss_net == 'None':
+        dense_loss = None
+        coarse_loss = None
+    else:
+        assert False, "Loss network not supported"
+
+    print("Loss network: {}".format(args.loss_net))
+
+    # set up completion model
+    if args.dataset == 'modelnet40':
+        completion_network = PCN(num_dense=2048).to(args.device)
+    else:
+        completion_network = PCN().to(args.device)
+
+    train_completion_network(completion_network, coarse_loss, dense_loss, args)
+    print("Training completed")
+
+    evaluate_model(completion_network, args)
+    print(args.experiment, "Evaluation completed")
