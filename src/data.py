@@ -1,7 +1,7 @@
 '''
 Author: Yuxi Chen
 Date: 2022-03-15 17:49:50
-LastEditTime: 2022-04-12 19:15:59
+LastEditTime: 2022-04-13 12:55:20
 LastEditors: Ethan Chen
 Description:
 FilePath: /CMPUT414/src/data.py
@@ -13,9 +13,12 @@ import numpy as np
 import h5py
 from util import *
 import open3d as o3d
+import torch
+import random
 
 TRAIN_DATA_PATH = '/home/ethan/Code/Project/CMPUT414/data/modelnet40_ply_hdf5_2048/train_files.txt'
 TEST_DATA_PATH = '/home/ethan/Code/Project/CMPUT414/data/modelnet40_ply_hdf5_2048/test_files.txt'
+SHAPENET_DATA_PATH = '/home/ethan/Code/Project/CMPUT414/data/PCN'
 SHAPE_NAME = ["airplane",
               "bathtub",
               "bed",
@@ -133,13 +136,104 @@ def plot_point_cloud_one_view(pointclouds, file_name, titles, suptitle='', sizes
     plt.close()
 
 
+class ShapeNet(Dataset):
+    def __init__(self, dataroot, split, category, augmentation=False):
+        assert split in ['train', 'valid', 'test', 'test_novel'], "split error value!"
+
+        self.cat2id = {
+            # seen categories
+            "airplane": "02691156",  # plane
+            "cabinet": "02933112",  # dresser
+            "car": "02958343",
+            "chair": "03001627",
+            "lamp": "03636649",
+            "sofa": "04256520",
+            "table": "04379243",
+            "vessel": "04530566",  # boat
+
+            # alias for some seen categories
+            "boat": "04530566",  # vessel
+            "couch": "04256520",  # sofa
+            "dresser": "02933112",  # cabinet
+            "airplane": "02691156",  # airplane
+            "watercraft": "04530566",  # boat
+
+            # unseen categories
+            "bus": "02924116",
+            "bed": "02818832",
+            "bookshelf": "02871439",
+            "bench": "02828884",
+            "guitar": "03467517",
+            "motorbike": "03790512",
+            "skateboard": "04225987",
+            "pistol": "03948459",
+        }
+
+        # self.id2cat = {cat_id: cat for cat, cat_id in self.cat2id.items()}
+
+        self.dataroot = dataroot
+        self.split = split
+        self.category = category
+        self.augmentation = augmentation
+
+        self.partial_paths, self.complete_paths = self._load_data()
+
+    def __getitem__(self, index):
+        if self.split == 'train':
+            partial_path = self.partial_paths[index].format(random.randint(0, 7))
+        else:
+            partial_path = self.partial_paths[index]
+        complete_path = self.complete_paths[index]
+
+        partial_pc = self.random_sample(self.read_point_cloud(partial_path), 2048)
+        complete_pc = self.random_sample(self.read_point_cloud(complete_path), 16384)
+
+        if self.augmentation:
+            pass
+        else:
+            return torch.from_numpy(partial_pc), torch.from_numpy(complete_pc)
+
+    def __len__(self):
+        return len(self.complete_paths)
+
+    def _load_data(self):
+        with open(os.path.join(self.dataroot, '{}.list').format(self.split), 'r') as f:
+            lines = f.read().splitlines()
+
+        if self.category != 'all':
+            lines = list(filter(lambda x: x.startswith(self.cat2id[self.category]), lines))
+
+        partial_paths, complete_paths = list(), list()
+
+        for line in lines:
+            category, model_id = line.split('/')
+            if self.split == 'train':
+                partial_paths.append(os.path.join(self.dataroot, self.split, 'partial', category, model_id + '_{}.ply'))
+            else:
+                partial_paths.append(os.path.join(self.dataroot, self.split, 'partial', category, model_id + '.ply'))
+            complete_paths.append(os.path.join(self.dataroot, self.split, 'complete', category, model_id + '.ply'))
+
+        return partial_paths, complete_paths
+
+    def read_point_cloud(self, path):
+        pc = o3d.io.read_point_cloud(path)
+        return np.array(pc.points, np.float32)
+
+    def random_sample(self, pc, n):
+        idx = np.random.permutation(pc.shape[0])
+        if idx.shape[0] < n:
+            idx = np.concatenate([idx, np.random.randint(pc.shape[0], size=n-pc.shape[0])])
+        return pc[idx[:n]]
+
+
 class ModelNet40(Dataset):
-    def __init__(self, num_points, data_path, num_coarse=128, severity=1, shape=-1):
+    def __init__(self, num_points, data_path, num_coarse=128, severity=1, shape=-1, augmentation=False):
         super().__init__()
         self.data, self.label = load_data(data_path, shape)
         self.num_points = num_points
         self.severity = severity
         self.num_coarse = num_coarse
+        self.augmentation = augmentation
 
     def __getitem__(self, index):
         # the original data
@@ -147,31 +241,34 @@ class ModelNet40(Dataset):
         coarseCloud = self.data[index][:self.num_coarse]
         label = self.label[index]
 
-        # for the data augmentation
-        translatedCloud, translatedCoarse = translate_pointcloud(pointCloud.copy(), coarseCloud.copy())
-        rotatedCloud, rotatedCoarse = rotation(pointCloud.copy(), coarseCloud.copy(), self.severity)
-
         # for the input of the network
         cutoutCloud = cutout(pointCloud.copy(), self.severity)
-        translatedCutout = cutout(translatedCloud.copy(), self.severity)
-        rotatedCutout = cutout(rotatedCloud.copy(), self.severity)
 
         # shuffle the data
         np.random.shuffle(pointCloud)
         np.random.shuffle(coarseCloud)
-        np.random.shuffle(translatedCoarse)
-        np.random.shuffle(rotatedCoarse)
-        np.random.shuffle(translatedCloud)
-        np.random.shuffle(rotatedCloud)
         np.random.shuffle(cutoutCloud)
-        np.random.shuffle(translatedCutout)
-        np.random.shuffle(rotatedCutout)
 
         original = (pointCloud, coarseCloud, cutoutCloud)
-        translated = (translatedCloud, translatedCoarse, translatedCutout)
-        rotated = (rotatedCloud, rotatedCoarse, rotatedCutout)
 
-        return original, translated, rotated, label
+        if self.augmentation:
+            # for the data augmentation
+            translatedCloud, translatedCoarse = translate_pointcloud(pointCloud.copy(), coarseCloud.copy())
+            rotatedCloud, rotatedCoarse = rotation(pointCloud.copy(), coarseCloud.copy(), self.severity)
+            translatedCutout = cutout(translatedCloud.copy(), self.severity)
+            rotatedCutout = cutout(rotatedCloud.copy(), self.severity)
+            np.random.shuffle(translatedCoarse)
+            np.random.shuffle(rotatedCoarse)
+            np.random.shuffle(translatedCloud)
+            np.random.shuffle(rotatedCloud)
+            np.random.shuffle(translatedCutout)
+            np.random.shuffle(rotatedCutout)
+            translated = (translatedCloud, translatedCoarse, translatedCutout)
+            rotated = (rotatedCloud, rotatedCoarse, rotatedCutout)
+
+            return original, translated, rotated, label
+        else:
+            return original, label
 
     def __len__(self):
         return self.data.shape[0]
@@ -181,7 +278,10 @@ class ModelNet40(Dataset):
 # total 9840 samples
 # total 40 classes
 if __name__ == "__main__":
-    s = ModelNet40(2048, TRAIN_DATA_PATH, shape=0)
+    # s = ModelNet40(2048, TRAIN_DATA_PATH, shape=0)
+    s = ShapeNet(SHAPENET_DATA_PATH, 'train', 'all')
+    a, b = s[0]
+    print(a.shape, b.shape)
     # w = ModelNet40(2048, TEST_DATA_PATH, shape="airplane")
     # category_train = {}
     # category_test = {}
