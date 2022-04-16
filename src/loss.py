@@ -1,7 +1,7 @@
 '''
 Author: Ethan Chen
 Date: 2022-04-08 07:37:13
-LastEditTime: 2022-04-15 01:31:45
+LastEditTime: 2022-04-15 17:15:55
 LastEditors: Ethan Chen
 Description: 
 FilePath: /CMPUT414/src/loss.py
@@ -202,33 +202,33 @@ class DGCNN(nn.Module):
         x = x.transpose(2, 1)
         batch_size = x.size(0)
         x = get_graph_feature(x, k=self.k)
-        self.feature.append(x)
+        self.feature.append(x)  # 0
         x = self.conv1(x)
-        self.feature.append(x)
+        self.feature.append(x)  # 1
         x1 = x.max(dim=-1, keepdim=False)[0]
 
         x = get_graph_feature(x1, k=self.k)
-        self.feature.append(x)
+        self.feature.append(x)  # 2
         x = self.conv2(x)
-        self.feature.append(x)
+        self.feature.append(x)  # 3
         x2 = x.max(dim=-1, keepdim=False)[0]
 
         x = get_graph_feature(x2, k=self.k)
-        self.feature.append(x)
+        self.feature.append(x)  # 4
         x = self.conv3(x)
-        self.feature.append(x)
+        self.feature.append(x)  # 5
         x3 = x.max(dim=-1, keepdim=False)[0]
 
         x = get_graph_feature(x3, k=self.k)
-        self.feature.append(x)
+        self.feature.append(x)  # 6
         x = self.conv4(x)
-        self.feature.append(x)
+        self.feature.append(x)  # 7
         x4 = x.max(dim=-1, keepdim=False)[0]
 
         x = torch.cat((x1, x2, x3, x4), dim=1)
 
         x = self.conv5(x)
-        self.feature.append(x)
+        self.feature.append(x)  # 8
         x1 = F.adaptive_max_pool1d(x, 1).view(batch_size, -1)
         x2 = F.adaptive_avg_pool1d(x, 1).view(batch_size, -1)
         x = torch.cat((x1, x2), 1)
@@ -242,11 +242,15 @@ class DGCNN(nn.Module):
 
 
 class PointNetLoss(nn.Module):
-    def __init__(self, model, device, alpha):
+    def __init__(self, model, device, alpha=None):
         super(PointNetLoss, self).__init__()
-        self.model = model.eval()
+        self.model = model
         self.device = device
         self.alpha = alpha
+        self.model.to(self.device)
+        self.model.eval()
+        self.feature_need = [1, 3, 5, 7, 8]
+        self.weights = [1.0/32, 1.0/16, 1.0/8, 1.0/4, 1]
         for parm in self.model.parameters():
             parm.requires_grad = False
 
@@ -255,65 +259,27 @@ class PointNetLoss(nn.Module):
         _, _, _, feature_map_2 = self.model(pointcloud_2.to(self.device))
         loss = 0.0
         for i in range(len(feature_map)):
-            loss += F.smooth_l1_loss(feature_map[i], feature_map_2[i])
-        return loss
-
-
-class DGCNNLoss(nn.Module):
-    def __init__(self, model, device, alpha):
-        super(DGCNNLoss, self).__init__()
-        self.model = model.eval()
-        self.device = device
-        for parm in self.model.parameters():
-            parm.requires_grad = False
-
-    def forward(self, pc1, pc2):
-        _, _, _, feature_map = self.model(pc1.to(self.device))
-        _, _, _, feature_map_2 = self.model(pc2.to(self.device))
-        loss = 0.0
-        for i in range(len(feature_map)):
             loss += F.l1_loss(feature_map[i], feature_map_2[i])
         return loss
 
 
-# class VGGPerceptualLoss(torch.nn.Module):
-#     def __init__(self, resize=True):
-#         super(VGGPerceptualLoss, self).__init__()
-#         blocks = []
-#         blocks.append(torchvision.models.vgg16(pretrained=True).features[:4].eval())
-#         blocks.append(torchvision.models.vgg16(pretrained=True).features[4:9].eval())
-#         blocks.append(torchvision.models.vgg16(pretrained=True).features[9:16].eval())
-#         blocks.append(torchvision.models.vgg16(pretrained=True).features[16:23].eval())
-#         for bl in blocks:
-#             for p in bl.parameters():
-#                 p.requires_grad = False
-#         self.blocks = torch.nn.ModuleList(blocks)
-#         self.transform = torch.nn.functional.interpolate
-#         self.resize = resize
-#         self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
-#         self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+class DGCNNLoss(nn.Module):
+    def __init__(self, model, device, alpha=None):
+        super(DGCNNLoss, self).__init__()
+        self.model = model
+        self.device = device
+        self.alpha = alpha
+        self.model.to(self.device)
+        self.model.eval()
+        self.feature_need = [1, 3, 5, 7, 8]
+        self.weights = [1.0/32, 1.0/16, 1.0/8, 1.0/4, 1]
+        for parm in self.model.parameters():
+            parm.requires_grad = False
 
-#     def forward(self, input, target, feature_layers=[0, 1, 2, 3], style_layers=[]):
-#         if input.shape[1] != 3:
-#             input = input.repeat(1, 3, 1, 1)
-#             target = target.repeat(1, 3, 1, 1)
-#         input = (input-self.mean) / self.std
-#         target = (target-self.mean) / self.std
-#         if self.resize:
-#             input = self.transform(input, mode='bilinear', size=(224, 224), align_corners=False)
-#             target = self.transform(target, mode='bilinear', size=(224, 224), align_corners=False)
-#         loss = 0.0
-#         x = input
-#         y = target
-#         for i, block in enumerate(self.blocks):
-#             x = block(x)
-#             y = block(y)
-#             if i in feature_layers:
-#                 loss += torch.nn.functional.l1_loss(x, y)
-#             if i in style_layers:
-#                 act_x = x.reshape(x.shape[0], x.shape[1], -1)
-#                 act_y = y.reshape(y.shape[0], y.shape[1], -1)
-#                 gram_x = act_x @ act_x.permute(0, 2, 1)
-#                 gram_y = act_y @ act_y.permute(0, 2, 1)
-#                 loss += torch.nn.functional.l1_loss(gram_x, gram_y)
-#         return loss
+    def forward(self, pc1, pc2):
+        _, feature_map = self.model(pc1.to(self.device))
+        _, feature_map_2 = self.model(pc2.to(self.device))
+        loss = 0
+        for i in range(len(self.feature_need)):
+            loss += self.weights[i]*F.l1_loss(feature_map[i], feature_map_2[i])
+        return loss
