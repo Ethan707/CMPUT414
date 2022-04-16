@@ -1,7 +1,7 @@
 '''
 Author: Yuxi Chen
 Date: 2022-03-15 17:49:50
-LastEditTime: 2022-04-13 12:55:20
+LastEditTime: 2022-04-15 02:38:50
 LastEditors: Ethan Chen
 Description:
 FilePath: /CMPUT414/src/data.py
@@ -11,13 +11,18 @@ from matplotlib import pyplot as plt
 from torch.utils.data import Dataset
 import numpy as np
 import h5py
+from tqdm import tqdm
 from util import *
 import open3d as o3d
 import torch
 import random
+import loss
+from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import CosineAnnealingLR
+import torch.nn as nn
 
-TRAIN_DATA_PATH = '/home/ethan/Code/Project/CMPUT414/data/modelnet40_ply_hdf5_2048/train_files.txt'
-TEST_DATA_PATH = '/home/ethan/Code/Project/CMPUT414/data/modelnet40_ply_hdf5_2048/test_files.txt'
+MODELNET40_TRAIN = '/home/ethan/Code/Project/CMPUT414/data/modelnet40_ply_hdf5_2048/train_files.txt'
+MODELNET40_TEST = '/home/ethan/Code/Project/CMPUT414/data/modelnet40_ply_hdf5_2048/test_files.txt'
 SHAPENET_DATA_PATH = '/home/ethan/Code/Project/CMPUT414/data/PCN'
 SHAPE_NAME = ["airplane",
               "bathtub",
@@ -278,10 +283,60 @@ class ModelNet40(Dataset):
 # total 9840 samples
 # total 40 classes
 if __name__ == "__main__":
-    # s = ModelNet40(2048, TRAIN_DATA_PATH, shape=0)
-    s = ShapeNet(SHAPENET_DATA_PATH, 'train', 'all')
-    a, b = s[0]
-    print(a.shape, b.shape)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    train_set = ModelNet40(128, MODELNET40_TRAIN, augmentation=False)
+    test_set = ModelNet40(128, MODELNET40_TEST, augmentation=False)
+    train_loader = DataLoader(train_set, batch_size=32, shuffle=True, num_workers=8)
+    test_loader = DataLoader(test_set, batch_size=32, shuffle=True, num_workers=8)
+    model = loss.DGCNN(40, 1024, 0.5).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+    scheduler = CosineAnnealingLR(optimizer, 100, eta_min=0.001)
+    criterion = nn.CrossEntropyLoss()
+    best_acc = 0
+    best_epoch = 0
+    for epoch in range(100):
+        train_loss = 0
+        train_correct = 0
+        for _, data in enumerate(tqdm(train_loader)):
+            original, label = data
+
+            optimizer.zero_grad()
+            pred, _ = model(original[0].to(device))
+            label = label.to(device).squeeze()
+            loss_value = criterion(pred, label)
+            loss_value.backward()
+            optimizer.step()
+            train_loss += loss_value.item()
+            pred = pred.argmax(dim=1)
+            train_correct += (pred == label).sum().item()
+
+        scheduler.step()
+        model.eval()
+        test_loss = 0
+        test_correct = 0
+        with torch.no_grad():
+            for _, data in enumerate(tqdm(test_loader)):
+                original,  label = data
+
+                pred, _ = model(original[0].to(device))
+                label = label.to(device).squeeze()
+                loss_value = criterion(pred, label)
+                test_loss += loss_value.item()
+                pred = pred.argmax(dim=1)
+                test_correct += (pred == label).sum().item()
+
+        print("epoch: {}, train loss: {}, train accuracy: {}, test loss: {}, test accuracy: {}".format(
+            epoch, train_loss/(1*len(train_loader.dataset)),
+            train_correct / (1*len(train_loader.dataset)),
+            test_loss / (1*len(test_loader.dataset)),
+            test_correct / (1*len(test_loader.dataset))))
+
+        if test_correct / (1*len(test_loader.dataset)) > best_acc:
+            best_acc = test_correct / (1*len(test_loader.dataset))
+            best_epoch = epoch
+            torch.save(model.state_dict(), "/home/ethan/Code/Project/CMPUT414/model/DGCNN_128.pth")
+    print("Best accuracy: {}, at epoch: {}".format(best_acc, best_epoch))
+
     # w = ModelNet40(2048, TEST_DATA_PATH, shape="airplane")
     # category_train = {}
     # category_test = {}
