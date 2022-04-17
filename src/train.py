@@ -1,7 +1,7 @@
 '''
 Author: Ethan Chen
 Date: 2022-03-16 17:47:49
-LastEditTime: 2022-04-15 15:21:09
+LastEditTime: 2022-04-16 23:46:54
 LastEditors: Ethan Chen
 Description:
 FilePath: /CMPUT414/src/train.py
@@ -262,7 +262,7 @@ def train_completion_network(model, loss1, loss2, args):
             best_l1_cd = test_loss / len(test_loader.dataset)
             best_epoch = epoch
             torch.save(model.state_dict(),
-                       '/home/ethan/Code/Project/CMPUT414/model/DGCNNLoss/completion_model_{}.pth'.format(epoch))
+                       '/home/ethan/Code/Project/CMPUT414/model/PNLoss_alpha_2_PN(AU)_S5/completion_model_{}.pth'.format(epoch))
     print("Best L1 CD: {}, at epoch: {}".format(best_l1_cd, best_epoch))
 
 
@@ -270,7 +270,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='modelnet40',
                         choices=['modelnet40', 'shapenet'], help='dataset name')
-    parser.add_argument('--batch_size', type=int, default=4, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=32, help='batch size')
     parser.add_argument('--epochs', type=int, default=400, help='epochs')
     parser.add_argument('--lr', type=float, default=0.0001, help='learning rate')
     parser.add_argument('--seed', type=int, default=1234, help='random seed')
@@ -294,109 +294,112 @@ if __name__ == "__main__":
         args.exp = 'PCN_'+args.loss_net+'_'+args.dataset+'_'+str(args.epochs)+'_'+str(args.seed)
     if args.augmentation:
         args.exp += '_augmentation'
+    args.exp = 'PCN_alpha_2_PN(AU)_S5'+args.dataset+'_'+str(args.epochs)+'_'+str(args.seed)
     print("Experiment: {}".format(args.exp))
 
-    loss_net_dense = DGCNN(40, 1024, 0.5).to(args.device)
-    loss_net_coarse = DGCNN(40, 1024, 0.5).to(args.device)
+    loss_net_dense = PointNetCls(40).to(args.device)
+    loss_net_coarse = PointNetCls(40).to(args.device)
 
-    loss_net_dense.load_state_dict(torch.load('/home/ethan/Code/Project/CMPUT414/model/DGCNN_2048.pth'))
-    loss_net_coarse.load_state_dict(torch.load('/home/ethan/Code/Project/CMPUT414/model/DGCNN_128.pth'))
-    dense_loss = DGCNNLoss(loss_net_dense, args.device)
-    coarse_loss = DGCNNLoss(loss_net_coarse, args.device)
+    loss_net_dense.load_state_dict(torch.load('/home/ethan/Code/Project/CMPUT414/model/PN_2048_AU.pth'))
+    loss_net_coarse.load_state_dict(torch.load('/home/ethan/Code/Project/CMPUT414/model/PN_128_AU.pth'))
+    dense_loss = PointNetLoss(loss_net_dense, args.device)
+    coarse_loss = PointNetLoss(loss_net_coarse, args.device)
     completion_network = PCN(num_dense=2048).to(args.device)
+    # dense_loss = None
+    # coarse_loss = None
     train_completion_network(completion_network, coarse_loss, dense_loss, args)
     print("Training completed")
 
     # set up or train loss network (PointNet or DGCNN)
-    if args.loss_net == 'PointNet':
-        if args.dataset == 'modelnet40':
-            loss_net_dense = PointNetCls(k=40).to(args.device)
-            loss_net_coarse = PointNetCls(k=40).to(args.device)
+    # if args.loss_net == 'PointNet':
+    #     if args.dataset == 'modelnet40':
+    #         loss_net_dense = PointNetCls(k=40).to(args.device)
+    #         loss_net_coarse = PointNetCls(k=40).to(args.device)
 
-            # if not exist pretrained model, train from scratch
-            if not os.path.exists(os.path.join(MODEL_PATH, 'PN_2048{}.pth'.format('_AU' if args.augmentation else ''))):
-                train_loss_modelnet40(loss_net_dense, 2048, args)
-            else:
-                loss_net_dense.load_state_dict(torch.load(os.path.join(
-                    MODEL_PATH, 'PN_2048{}.pth'.format('_AU' if args.augmentation else ''))))
+    #         # if not exist pretrained model, train from scratch
+    #         if not os.path.exists(os.path.join(MODEL_PATH, 'PN_2048{}.pth'.format('_AU' if args.augmentation else ''))):
+    #             train_loss_modelnet40(loss_net_dense, 2048, args)
+    #         else:
+    #             loss_net_dense.load_state_dict(torch.load(os.path.join(
+    #                 MODEL_PATH, 'PN_2048{}.pth'.format('_AU' if args.augmentation else ''))))
 
-            if not os.path.exists(os.path.join(MODEL_PATH, 'PN_128{}.pth'.format('_AU' if args.augmentation else ''))):
-                train_loss_modelnet40(loss_net_coarse, 128, args)
-            else:
-                loss_net_coarse.load_state_dict(torch.load(os.path.join(
-                    MODEL_PATH, 'PN_128{}.pth'.format('_AU' if args.augmentation else ''))))
+    #         if not os.path.exists(os.path.join(MODEL_PATH, 'PN_128{}.pth'.format('_AU' if args.augmentation else ''))):
+    #             train_loss_modelnet40(loss_net_coarse, 128, args)
+    #         else:
+    #             loss_net_coarse.load_state_dict(torch.load(os.path.join(
+    #                 MODEL_PATH, 'PN_128{}.pth'.format('_AU' if args.augmentation else ''))))
 
-            dense_loss = PointNetLoss(loss_net_dense, args.device)
-            coarse_loss = PointNetLoss(loss_net_coarse, args.device)
+    #         dense_loss = PointNetLoss(loss_net_dense, args.device)
+    #         coarse_loss = PointNetLoss(loss_net_coarse, args.device)
 
-        elif args.dataset == 'shapenet':
-            loss_net_dense = ...
-            loss_net_coarse = ...
+    #     elif args.dataset == 'shapenet':
+    #         loss_net_dense = ...
+    #         loss_net_coarse = ...
 
-            # if not exist pretrained model, train from scratch
-            if not os.path.exists(os.path.join('')):
-                train_loss_modelnet40()
-            else:
-                loss_net_dense.load_state_dict(torch.load(os.path.join('')))
+    #         # if not exist pretrained model, train from scratch
+    #         if not os.path.exists(os.path.join('')):
+    #             train_loss_modelnet40()
+    #         else:
+    #             loss_net_dense.load_state_dict(torch.load(os.path.join('')))
 
-            if not os.path.exists(os.path.join('')):
-                train_loss_modelnet40()
-            else:
-                loss_net_coarse.load_state_dict(torch.load(os.path.join('')))
+    #         if not os.path.exists(os.path.join('')):
+    #             train_loss_modelnet40()
+    #         else:
+    #             loss_net_coarse.load_state_dict(torch.load(os.path.join('')))
 
-            dense_loss = PointNetLoss(loss_net_dense, args.device)
-            coarse_loss = PointNetLoss(loss_net_coarse, args.device)
+    #         dense_loss = PointNetLoss(loss_net_dense, args.device)
+    #         coarse_loss = PointNetLoss(loss_net_coarse, args.device)
 
-    elif args.loss_net == 'DGCNN':
-        if args.dataset == 'modelnet40':
-            loss_net_dense = DGCNN(40, 1024, 0.5)
-            loss_net_coarse = DGCNN(40, 1024, 0.5)
+    # elif args.loss_net == 'DGCNN':
+    #     if args.dataset == 'modelnet40':
+    #         loss_net_dense = DGCNN(40, 1024, 0.5)
+    #         loss_net_coarse = DGCNN(40, 1024, 0.5)
 
-            # if not exist pretrained model, train from scratch
-            if not os.path.exists(os.path.join(MODEL_PATH, 'DGCNN_2048{}.pth'.format('_AU' if args.augmentation else ''))):
-                train_loss_modelnet40(loss_net_dense, 2048, args)
-            else:
-                loss_net_dense.load_state_dict(torch.load(os.path.join(
-                    MODEL_PATH, 'DGCNN_2048{}.pth'.format('_AU' if args.augmentation else ''))))
+    #         # if not exist pretrained model, train from scratch
+    #         if not os.path.exists(os.path.join(MODEL_PATH, 'DGCNN_2048{}.pth'.format('_AU' if args.augmentation else ''))):
+    #             train_loss_modelnet40(loss_net_dense, 2048, args)
+    #         else:
+    #             loss_net_dense.load_state_dict(torch.load(os.path.join(
+    #                 MODEL_PATH, 'DGCNN_2048{}.pth'.format('_AU' if args.augmentation else ''))))
 
-            if not os.path.exists(os.path.join(MODEL_PATH, 'DGCNN_128{}.pth'.format('_AU' if args.augmentation else ''))):
-                train_loss_modelnet40(loss_net_coarse, 128, args)
-            else:
-                loss_net_coarse.load_state_dict(torch.load(os.path.join(
-                    MODEL_PATH, 'DGCNN_2048{}.pth'.format('_AU' if args.augmentation else ''))))
+    #         if not os.path.exists(os.path.join(MODEL_PATH, 'DGCNN_128{}.pth'.format('_AU' if args.augmentation else ''))):
+    #             train_loss_modelnet40(loss_net_coarse, 128, args)
+    #         else:
+    #             loss_net_coarse.load_state_dict(torch.load(os.path.join(
+    #                 MODEL_PATH, 'DGCNN_2048{}.pth'.format('_AU' if args.augmentation else ''))))
 
-            dense_loss = DGCNNLoss(loss_net_dense, args.device)
-            coarse_loss = DGCNNLoss(loss_net_coarse, args.device)
+    #         dense_loss = DGCNNLoss(loss_net_dense, args.device)
+    #         coarse_loss = DGCNNLoss(loss_net_coarse, args.device)
 
-        elif args.dataset == 'shapenet':
-            loss_net_dense = ...
-            loss_net_coarse = ...
+    #     elif args.dataset == 'shapenet':
+    #         loss_net_dense = ...
+    #         loss_net_coarse = ...
 
-            # if not exist pretrained model, train from scratch
-            if not os.path.exists(os.path.join('')):
-                train_loss_modelnet40()
-            else:
-                loss_net_dense.load_state_dict(torch.load(os.path.join('')))
+    #         # if not exist pretrained model, train from scratch
+    #         if not os.path.exists(os.path.join('')):
+    #             train_loss_modelnet40()
+    #         else:
+    #             loss_net_dense.load_state_dict(torch.load(os.path.join('')))
 
-            if not os.path.exists(os.path.join('')):
-                train_loss_modelnet40()
-            else:
-                loss_net_coarse.load_state_dict(torch.load(os.path.join('')))
+    #         if not os.path.exists(os.path.join('')):
+    #             train_loss_modelnet40()
+    #         else:
+    #             loss_net_coarse.load_state_dict(torch.load(os.path.join('')))
 
-            dense_loss = DGCNNLoss(loss_net_dense, args.device)
-            coarse_loss = DGCNNLoss(loss_net_coarse, args.device)
+    #         dense_loss = DGCNNLoss(loss_net_dense, args.device)
+    #         coarse_loss = DGCNNLoss(loss_net_coarse, args.device)
 
-    elif args.loss_net == 'None':
-        dense_loss = None
-        coarse_loss = None
+    # elif args.loss_net == 'None':
+    #     dense_loss = None
+    #     coarse_loss = None
 
-    print("Loss network: {}".format(args.loss_net))
+    # print("Loss network: {}".format(args.loss_net))
 
-    # set up completion model
-    if args.dataset == 'modelnet40':
-        completion_network = PCN(num_dense=2048).to(args.device)
-    else:
-        completion_network = PCN().to(args.device)
+    # # set up completion model
+    # if args.dataset == 'modelnet40':
+    #     completion_network = PCN(num_dense=2048).to(args.device)
+    # else:
+    #     completion_network = PCN().to(args.device)
 
-    train_completion_network(completion_network, coarse_loss, dense_loss, args)
-    print("Training completed")
+    # train_completion_network(completion_network, coarse_loss, dense_loss, args)
+    # print("Training completed")

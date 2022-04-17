@@ -1,7 +1,7 @@
 '''
 Author: Ethan Chen
 Date: 2022-04-08 07:37:13
-LastEditTime: 2022-04-15 17:15:55
+LastEditTime: 2022-04-16 23:45:32
 LastEditors: Ethan Chen
 Description: 
 FilePath: /CMPUT414/src/loss.py
@@ -78,18 +78,18 @@ class STN3d(nn.Module):
         batchsize = x.size()[0]
         self.feature = []
         x = F.relu(self.bn1(self.conv1(x)))
-        self.feature.append(x)
+        self.feature.append(x)  # 0
         x = F.relu(self.bn2(self.conv2(x)))
-        self.feature.append(x)
+        self.feature.append(x)  # 1
         x = F.relu(self.bn3(self.conv3(x)))
-        self.feature.append(x)
+        self.feature.append(x)  # 2
         x = torch.max(x, 2, keepdim=True)[0]
         x = x.view(-1, 1024)
 
         x = F.relu(self.bn4(self.fc1(x)))
-        self.feature.append(x)
+        self.feature.append(x)  # 3
         x = F.relu(self.bn5(self.fc2(x)))
-        self.feature.append(x)
+        self.feature.append(x)  # 4
         x = self.fc3(x)
         iden = Variable(torch.from_numpy(np.array([1, 0, 0, 0, 1, 0, 0, 0, 1]
                                                   ).astype(np.float32))).view(1, 9).repeat(batchsize, 1)
@@ -120,14 +120,14 @@ class PointNetfeat(nn.Module):
         x = torch.bmm(x, trans)
         x = x.transpose(2, 1)
         x = F.relu(self.bn1(self.conv1(x)))
-        self.feature.append(x)
+        self.feature.append(x)  # 5
         trans_feat = None
 
         pointfeat = x
         x = F.relu(self.bn2(self.conv2(x)))
-        self.feature.append(x)
+        self.feature.append(x)  # 6
         x = self.bn3(self.conv3(x))
-        self.feature.append(x)
+        self.feature.append(x)  # 7
         x = torch.max(x, 2, keepdim=True)[0]
         x = x.view(-1, 1024)
         if self.global_feat:
@@ -242,15 +242,15 @@ class DGCNN(nn.Module):
 
 
 class PointNetLoss(nn.Module):
-    def __init__(self, model, device, alpha=None):
+    def __init__(self, model, device, alpha=0.7):
         super(PointNetLoss, self).__init__()
         self.model = model
         self.device = device
         self.alpha = alpha
         self.model.to(self.device)
         self.model.eval()
-        self.feature_need = [1, 3, 5, 7, 8]
-        self.weights = [1.0/32, 1.0/16, 1.0/8, 1.0/4, 1]
+        # self.feature_need = [5, 6, 7]
+        self.feature_need = [0, 1, 2, 5, 6, 7]
         for parm in self.model.parameters():
             parm.requires_grad = False
 
@@ -258,8 +258,8 @@ class PointNetLoss(nn.Module):
         _, _, _, feature_map = self.model(pointcloud_1.to(self.device))
         _, _, _, feature_map_2 = self.model(pointcloud_2.to(self.device))
         loss = 0.0
-        for i in range(len(feature_map)):
-            loss += F.l1_loss(feature_map[i], feature_map_2[i])
+        for i in self.feature_need:
+            loss += self.alpha*F.l1_loss(feature_map[i], feature_map_2[i])
         return loss
 
 
