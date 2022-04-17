@@ -1,7 +1,7 @@
 '''
 Author: Ethan Chen
 Date: 2022-04-14 22:38:52
-LastEditTime: 2022-04-14 22:47:31
+LastEditTime: 2022-04-16 23:43:16
 LastEditors: Ethan Chen
 Description: 
 FilePath: /CMPUT414/src/evaluation.py
@@ -9,10 +9,14 @@ FilePath: /CMPUT414/src/evaluation.py
 import argparse
 import csv
 import os
+import sys
+from loss import DGCNN
 from metrics.metric import l1_cd, l2_cd, f_score
 from data import *
 from datetime import datetime
-EVALUATE_RESULT_PATH = '/home/ethan/Code/Project/CMPUT414/results'
+
+from model import PCN
+EVALUATE_RESULT_PATH = '/home/ethan/Code/Project/CMPUT414/results/New'
 
 
 def write_result(name, path, shape, result_original, result_translated, result_rotated):
@@ -46,7 +50,7 @@ def evaluate_single(model, pc, args):
 
 
 def evaluate_single_shape(shape, model, args):
-    modelnet40_test = ModelNet40(num_points=2048, data_path=MODELNET40_TEST, shape=shape)
+    modelnet40_test = ModelNet40(num_points=2048, data_path=MODELNET40_TEST, shape=shape, augmentation=True, severity=5)
     test_loader = DataLoader(modelnet40_test, num_workers=8, batch_size=32, shuffle=True)
 
     # evaluate model
@@ -55,9 +59,12 @@ def evaluate_single_shape(shape, model, args):
     translated_l1_cd, translated_l2_cd, translated_f1 = 0, 0, 0
     rotated_l1_cd, rotated_l2_cd, rotated_f1 = 0, 0, 0
     length = len(test_loader.dataset)
+    model.eval()
 
     with torch.no_grad():
-        for original, translated, rotated, _ in test_loader:
+        for _, data in enumerate(test_loader):
+            original, translated, rotated, _ = data
+
             # original
             result = evaluate_single(model, original, args)
             original_l1_cd += result[0]
@@ -117,10 +124,14 @@ def evaluate_model(completion_model, args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--exp', type=str, default='test', help='experiment name')
+    parser.add_argument('--exp', type=str, default='PCN_CD_alpha_PN(AU)_S5', help='experiment name')
+    parser.add_argument('--dataset', type=str, default='modelnet40', help='dataset name')
+    parser.add_argument('--device', type=str, default='cuda', help='device for evaluation')
+
     args = parser.parse_args()
 
     # TODO: load model
-    completion_model = ...
-    completion_model.load_state_dict(torch.load(os.path.join('')))
+    completion_model = PCN(2048).to(args.device)
+    completion_model.load_state_dict(torch.load(
+        '/home/ethan/Code/Project/CMPUT414/model/PNLoss_alpha_PN(AU)_S5/completion_model_380.pth'))
     evaluate_model(completion_model, args)
